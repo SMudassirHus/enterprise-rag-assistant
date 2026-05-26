@@ -4,7 +4,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+
+load_dotenv(BACKEND_DIR / ".env")
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,18 @@ class Settings:
     @property
     def chroma_path(self) -> Path:
         return Path(self.chroma_db_dir)
+
+    @property
+    def has_openai_api_key(self) -> bool:
+        api_key = self.openai_api_key.strip()
+        return bool(api_key) and api_key != "your_openai_api_key_here"
+
+    def safe_openai_debug_info(self) -> dict[str, str | bool]:
+        return {
+            "openai_api_key_loaded": self.has_openai_api_key,
+            "embedding_model": self.embedding_model,
+            "chat_model": self.chat_model,
+        }
 
 
 settings = Settings()

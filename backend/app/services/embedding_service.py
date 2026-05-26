@@ -23,13 +23,15 @@ class EmbeddingResult:
 
 
 def create_openai_client(api_key: str) -> OpenAI:
-    if not api_key:
+    cleaned_api_key = api_key.strip()
+
+    if not cleaned_api_key or cleaned_api_key == "your_openai_api_key_here":
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="OpenAI API key is not configured.",
         )
 
-    return OpenAI(api_key=api_key)
+    return OpenAI(api_key=cleaned_api_key)
 
 
 def generate_chunk_embeddings(
@@ -45,6 +47,11 @@ def generate_chunk_embeddings(
 
     client = create_openai_client(api_key)
     chunk_texts = [chunk.text for chunk in chunks]
+    logger.info(
+        "Generating embeddings for %s chunks using model '%s'",
+        len(chunk_texts),
+        model,
+    )
 
     try:
         response = client.embeddings.create(
@@ -55,10 +62,17 @@ def generate_chunk_embeddings(
         logger.exception("OpenAI embedding request failed")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="OpenAI embedding request failed.",
+            detail=f"OpenAI embedding request failed: {exc.__class__.__name__}",
+        ) from exc
+    except Exception as exc:
+        logger.exception("Unexpected error while generating embeddings")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected embedding error: {exc.__class__.__name__}",
         ) from exc
 
     if not response.data:
+        logger.error("OpenAI embedding response contained no data")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="OpenAI returned no embeddings.",
@@ -71,6 +85,11 @@ def generate_chunk_embeddings(
     ]
 
     if len(chunk_embeddings) != len(chunks):
+        logger.error(
+            "OpenAI returned %s embeddings for %s chunks",
+            len(chunk_embeddings),
+            len(chunks),
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="OpenAI returned an unexpected number of embeddings.",

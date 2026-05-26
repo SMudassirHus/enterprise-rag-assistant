@@ -1,25 +1,20 @@
+import logging
+
 from fastapi import APIRouter, File, UploadFile
+from fastapi import HTTPException, status
 
 from app.core.config import settings
-from app.services.embedding_service import (
-    generate_chunk_embeddings,
-    summarize_embedding_result,
+from app.services.document_pipeline_service import (
+    generate_embeddings_for_uploaded_pdf,
+    get_chunks_for_uploaded_pdf,
+    store_uploaded_pdf_in_vector_database,
 )
+from app.services.embedding_service import summarize_embedding_result
 from app.services.pdf_extraction_service import extract_text_from_pdf
-from app.services.text_chunking_service import TextChunk, split_text_into_chunks
 from app.services.upload_service import save_uploaded_pdf
-from app.services.vector_store_service import store_chunk_embeddings
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
-
-
-def get_chunks_for_uploaded_pdf(filename: str) -> list[TextChunk]:
-    extracted_text = extract_text_from_pdf(settings.upload_path, filename)
-    return split_text_into_chunks(
-        text=extracted_text,
-        chunk_size=settings.chunk_size,
-        chunk_overlap=settings.chunk_overlap,
-    )
+logger = logging.getLogger(__name__)
 
 
 @router.post("")
@@ -70,36 +65,29 @@ def create_pdf_chunks(filename: str) -> dict[str, str | int | list[dict[str, str
 
 @router.post("/{filename}/embeddings")
 def create_pdf_embeddings(filename: str) -> dict[str, str | int]:
-    chunks = get_chunks_for_uploaded_pdf(filename)
-    embedding_result = generate_chunk_embeddings(
-        chunks=chunks,
-        api_key=settings.openai_api_key,
-        model=settings.embedding_model,
-    )
+    try:
+        embedding_result = generate_embeddings_for_uploaded_pdf(filename)
 
-    return {
-        "status": "success",
-        "message": "Embeddings generated successfully",
-        "filename": filename,
-        **summarize_embedding_result(embedding_result),
-    }
+        return {
+            "status": "success",
+            "message": "Embeddings generated successfully",
+            "filename": filename,
+            **summarize_embedding_result(embedding_result),
+        }
+    except HTTPException as exc:
+        logger.exception("Embeddings endpoint failed with handled error")
+        raise exc
+    except Exception as exc:
+        logger.exception("Embeddings endpoint failed with unexpected error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected embeddings endpoint error: {exc.__class__.__name__}",
+        ) from exc
 
 
 @router.post("/{filename}/vector-store")
 def store_pdf_chunks_in_vector_database(filename: str) -> dict[str, str | int]:
-    chunks = get_chunks_for_uploaded_pdf(filename)
-    embedding_result = generate_chunk_embeddings(
-        chunks=chunks,
-        api_key=settings.openai_api_key,
-        model=settings.embedding_model,
-    )
-    storage_result = store_chunk_embeddings(
-        chunk_embeddings=embedding_result.chunk_embeddings,
-        db_path=settings.chroma_path,
-        collection_name=settings.chroma_collection_name,
-        filename=filename,
-        embedding_model=embedding_result.model,
-    )
+    storage_result = store_uploaded_pdf_in_vector_database(filename)
 
     return {
         "status": "success",
