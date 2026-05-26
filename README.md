@@ -11,8 +11,9 @@ This project is being built step-by-step. The current version includes:
 - OpenAI embedding generation
 - Local ChromaDB vector storage
 - Semantic retrieval from stored chunks
+- Grounded AI answer generation
 
-AI answer generation and chat history will be added later.
+Chat history, authentication, and streaming will be added later.
 
 ## Tech Stack
 
@@ -25,53 +26,57 @@ AI answer generation and chat history will be added later.
 
 ```text
 enterprise-rag-assistant/
-├── backend/
-│   ├── app/
-│   │   ├── api/routes/
-│   │   │   ├── health.py
-│   │   │   ├── retrieval.py
-│   │   │   └── uploads.py
-│   │   ├── core/
-│   │   │   └── config.py
-│   │   ├── services/
-│   │   │   ├── embedding_service.py
-│   │   │   ├── pdf_extraction_service.py
-│   │   │   ├── retrieval_service.py
-│   │   │   ├── text_chunking_service.py
-│   │   │   ├── upload_service.py
-│   │   │   └── vector_store_service.py
-│   │   └── main.py
-│   ├── chroma/
-│   │   └── .gitkeep
-│   ├── uploads/
-│   │   └── .gitkeep
-│   ├── .env.example
-│   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── BackendStatus.jsx
-│   │   │   ├── ChunkPreview.jsx
-│   │   │   ├── EmbeddingStatus.jsx
-│   │   │   ├── ExtractedTextPreview.jsx
-│   │   │   ├── PdfUploadForm.jsx
-│   │   │   ├── RetrievalSearch.jsx
-│   │   │   └── VectorStoreStatus.jsx
-│   │   ├── services/
-│   │   │   ├── chunkApi.js
-│   │   │   ├── embeddingApi.js
-│   │   │   ├── extractionApi.js
-│   │   │   ├── healthApi.js
-│   │   │   ├── retrievalApi.js
-│   │   │   ├── uploadApi.js
-│   │   │   └── vectorStoreApi.js
-│   │   ├── App.jsx
-│   │   ├── main.jsx
-│   │   └── styles/index.css
-│   ├── .env.example
-│   └── package.json
-├── .gitignore
-└── README.md
+|-- backend/
+|   |-- app/
+|   |   |-- api/routes/
+|   |   |   |-- chat.py
+|   |   |   |-- health.py
+|   |   |   |-- retrieval.py
+|   |   |   `-- uploads.py
+|   |   |-- core/
+|   |   |   `-- config.py
+|   |   |-- services/
+|   |   |   |-- answer_service.py
+|   |   |   |-- embedding_service.py
+|   |   |   |-- pdf_extraction_service.py
+|   |   |   |-- retrieval_service.py
+|   |   |   |-- text_chunking_service.py
+|   |   |   |-- upload_service.py
+|   |   |   `-- vector_store_service.py
+|   |   `-- main.py
+|   |-- chroma/
+|   |   `-- .gitkeep
+|   |-- uploads/
+|   |   `-- .gitkeep
+|   |-- .env.example
+|   `-- requirements.txt
+|-- frontend/
+|   |-- src/
+|   |   |-- components/
+|   |   |   |-- AnswerBox.jsx
+|   |   |   |-- BackendStatus.jsx
+|   |   |   |-- ChunkPreview.jsx
+|   |   |   |-- EmbeddingStatus.jsx
+|   |   |   |-- ExtractedTextPreview.jsx
+|   |   |   |-- PdfUploadForm.jsx
+|   |   |   |-- RetrievalSearch.jsx
+|   |   |   `-- VectorStoreStatus.jsx
+|   |   |-- services/
+|   |   |   |-- answerApi.js
+|   |   |   |-- chunkApi.js
+|   |   |   |-- embeddingApi.js
+|   |   |   |-- extractionApi.js
+|   |   |   |-- healthApi.js
+|   |   |   |-- retrievalApi.js
+|   |   |   |-- uploadApi.js
+|   |   |   `-- vectorStoreApi.js
+|   |   |-- App.jsx
+|   |   |-- main.jsx
+|   |   `-- styles/index.css
+|   |-- .env.example
+|   `-- package.json
+|-- .gitignore
+`-- README.md
 ```
 
 ## Backend Setup
@@ -157,6 +162,7 @@ CHUNK_SIZE=1000
 CHUNK_OVERLAP=200
 OPENAI_API_KEY="your_real_openai_api_key"
 EMBEDDING_MODEL="text-embedding-3-small"
+CHAT_MODEL="gpt-5.2"
 CHROMA_DB_DIR="chroma"
 CHROMA_COLLECTION_NAME="enterprise_documents"
 RETRIEVAL_TOP_K=3
@@ -174,6 +180,7 @@ The current pipeline is:
 4. Generate embeddings: `POST /api/uploads/{filename}/embeddings`
 5. Store vectors: `POST /api/uploads/{filename}/vector-store`
 6. Search documents: `POST /api/retrieval/search`
+7. Generate grounded answer: `POST /api/chat/answer`
 
 ## ChromaDB Storage
 
@@ -194,26 +201,12 @@ backend/chroma/
 
 The generated Chroma files are ignored by Git. Only `.gitkeep` is committed.
 
-The vector storage endpoint returns:
-
-```json
-{
-  "status": "success",
-  "message": "Chunks stored in vector database successfully",
-  "total_chunks_stored": 3,
-  "collection_name": "enterprise_documents",
-  "document_filename": "stored_filename.pdf"
-}
-```
-
-Stored vectors are queried by the semantic retrieval endpoint.
-
 ## Semantic Retrieval
 
 Semantic retrieval accepts a user question, generates an OpenAI embedding for
 that question, and asks ChromaDB for the closest stored chunk embeddings.
 
-The retrieval endpoint accepts:
+Example request:
 
 ```json
 {
@@ -222,20 +215,30 @@ The retrieval endpoint accepts:
 }
 ```
 
-`top_k` is optional. If omitted, the backend uses `RETRIEVAL_TOP_K`.
+## Grounded Answer Generation
 
-The retrieval endpoint returns:
+The answer endpoint accepts a user question, retrieves relevant chunks from
+ChromaDB, and sends only those chunks plus the question to the OpenAI model.
+
+The model is instructed to answer only from the retrieved context. If the answer
+is not present, it should respond exactly:
+
+```text
+I could not find this information in the uploaded document.
+```
+
+Example response:
 
 ```json
 {
   "status": "success",
-  "message": "Relevant chunks retrieved successfully",
+  "message": "Answer generated successfully",
   "question": "What does the document say about onboarding?",
-  "collection_name": "enterprise_documents",
-  "total_matches": 3,
-  "matches": [
+  "answer": "The document says...",
+  "model": "gpt-5.2",
+  "sources": [
     {
-      "text": "Matching chunk text...",
+      "text": "Source chunk text...",
       "chunk_index": 1,
       "document_filename": "stored_filename.pdf",
       "relevance_score": 0.82,
@@ -244,6 +247,3 @@ The retrieval endpoint returns:
   ]
 }
 ```
-
-The frontend displays the retrieved chunks only. It does not generate final AI
-answers yet.

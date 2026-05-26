@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import AnswerBox from "./components/AnswerBox.jsx";
 import BackendStatus from "./components/BackendStatus.jsx";
 import PdfUploadForm from "./components/PdfUploadForm.jsx";
 import RetrievalSearch from "./components/RetrievalSearch.jsx";
@@ -58,6 +59,8 @@ function App() {
           <PdfUploadForm />
 
           <RetrievalSearch />
+
+          <AnswerBox />
 
           <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
             <p className="text-sm font-medium text-slate-500">

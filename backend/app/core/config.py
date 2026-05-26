@@ -17,6 +17,7 @@ class Settings:
     chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "200"))
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+    chat_model: str = os.getenv("CHAT_MODEL", "gpt-5.2")
     chroma_db_dir: str = os.getenv("CHROMA_DB_DIR", "chroma")
     chroma_collection_name: str = os.getenv(
         "CHROMA_COLLECTION_NAME",
