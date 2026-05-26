@@ -76,3 +76,39 @@ def store_chunk_embeddings(
         "collection_name": collection_name,
         "document_filename": filename,
     }
+
+
+def query_similar_chunks(
+    query_embedding: list[float],
+    db_path: Path,
+    collection_name: str,
+    top_k: int,
+):
+    if top_k <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Retrieval top_k must be greater than zero.",
+        )
+
+    collection = get_chroma_collection(db_path, collection_name)
+
+    try:
+        if collection.count() == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No documents have been stored in the vector database yet.",
+            )
+
+        return collection.query(
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            include=["documents", "metadatas", "distances"],
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Could not query ChromaDB collection")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not search vector database.",
+        ) from exc

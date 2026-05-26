@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import BackendStatus from "./components/BackendStatus.jsx";
 import PdfUploadForm from "./components/PdfUploadForm.jsx";
+import RetrievalSearch from "./components/RetrievalSearch.jsx";
 import { apiBaseUrl, getBackendHealth } from "./services/healthApi.js";
 
 function App() {
@@ -55,6 +56,8 @@ function App() {
           />
 
           <PdfUploadForm />
+
+          <RetrievalSearch />
 
           <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
             <p className="text-sm font-medium text-slate-500">

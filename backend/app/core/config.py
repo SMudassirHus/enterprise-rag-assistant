@@ -22,6 +22,7 @@ class Settings:
         "CHROMA_COLLECTION_NAME",
         "enterprise_documents",
     )
+    retrieval_top_k: int = int(os.getenv("RETRIEVAL_TOP_K", "3"))
     backend_cors_origins: str = os.getenv(
         "BACKEND_CORS_ORIGINS",
         "http://localhost:5173",

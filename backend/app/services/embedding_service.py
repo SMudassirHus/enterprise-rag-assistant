@@ -83,6 +83,41 @@ def generate_chunk_embeddings(
     )
 
 
+def generate_query_embedding(
+    text: str,
+    api_key: str,
+    model: str,
+) -> list[float]:
+    query_text = text.strip()
+    if not query_text:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Question cannot be empty.",
+        )
+
+    client = create_openai_client(api_key)
+
+    try:
+        response = client.embeddings.create(
+            model=model,
+            input=query_text,
+        )
+    except OpenAIError as exc:
+        logger.exception("OpenAI query embedding request failed")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="OpenAI query embedding request failed.",
+        ) from exc
+
+    if not response.data:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="OpenAI returned no query embedding.",
+        )
+
+    return response.data[0].embedding
+
+
 def summarize_embedding_result(result: EmbeddingResult) -> dict[str, int | str]:
     return {
         "total_chunks_processed": len(result.chunk_embeddings),

@@ -10,8 +10,9 @@ This project is being built step-by-step. The current version includes:
 - Text chunking
 - OpenAI embedding generation
 - Local ChromaDB vector storage
+- Semantic retrieval from stored chunks
 
-Semantic retrieval and chat answering will be added later.
+AI answer generation and chat history will be added later.
 
 ## Tech Stack
 
@@ -28,12 +29,14 @@ enterprise-rag-assistant/
 │   ├── app/
 │   │   ├── api/routes/
 │   │   │   ├── health.py
+│   │   │   ├── retrieval.py
 │   │   │   └── uploads.py
 │   │   ├── core/
 │   │   │   └── config.py
 │   │   ├── services/
 │   │   │   ├── embedding_service.py
 │   │   │   ├── pdf_extraction_service.py
+│   │   │   ├── retrieval_service.py
 │   │   │   ├── text_chunking_service.py
 │   │   │   ├── upload_service.py
 │   │   │   └── vector_store_service.py
@@ -52,12 +55,14 @@ enterprise-rag-assistant/
 │   │   │   ├── EmbeddingStatus.jsx
 │   │   │   ├── ExtractedTextPreview.jsx
 │   │   │   ├── PdfUploadForm.jsx
+│   │   │   ├── RetrievalSearch.jsx
 │   │   │   └── VectorStoreStatus.jsx
 │   │   ├── services/
 │   │   │   ├── chunkApi.js
 │   │   │   ├── embeddingApi.js
 │   │   │   ├── extractionApi.js
 │   │   │   ├── healthApi.js
+│   │   │   ├── retrievalApi.js
 │   │   │   ├── uploadApi.js
 │   │   │   └── vectorStoreApi.js
 │   │   ├── App.jsx
@@ -154,6 +159,7 @@ OPENAI_API_KEY="your_real_openai_api_key"
 EMBEDDING_MODEL="text-embedding-3-small"
 CHROMA_DB_DIR="chroma"
 CHROMA_COLLECTION_NAME="enterprise_documents"
+RETRIEVAL_TOP_K=3
 ```
 
 Do not commit `.env`. It is ignored by Git.
@@ -167,6 +173,7 @@ The current pipeline is:
 3. Generate chunks: `POST /api/uploads/{filename}/chunks`
 4. Generate embeddings: `POST /api/uploads/{filename}/embeddings`
 5. Store vectors: `POST /api/uploads/{filename}/vector-store`
+6. Search documents: `POST /api/retrieval/search`
 
 ## ChromaDB Storage
 
@@ -199,4 +206,44 @@ The vector storage endpoint returns:
 }
 ```
 
-At this step, vectors are stored but not queried yet. Semantic retrieval comes next.
+Stored vectors are queried by the semantic retrieval endpoint.
+
+## Semantic Retrieval
+
+Semantic retrieval accepts a user question, generates an OpenAI embedding for
+that question, and asks ChromaDB for the closest stored chunk embeddings.
+
+The retrieval endpoint accepts:
+
+```json
+{
+  "question": "What does the document say about onboarding?",
+  "top_k": 3
+}
+```
+
+`top_k` is optional. If omitted, the backend uses `RETRIEVAL_TOP_K`.
+
+The retrieval endpoint returns:
+
+```json
+{
+  "status": "success",
+  "message": "Relevant chunks retrieved successfully",
+  "question": "What does the document say about onboarding?",
+  "collection_name": "enterprise_documents",
+  "total_matches": 3,
+  "matches": [
+    {
+      "text": "Matching chunk text...",
+      "chunk_index": 1,
+      "document_filename": "stored_filename.pdf",
+      "relevance_score": 0.82,
+      "distance": 0.21
+    }
+  ]
+}
+```
+
+The frontend displays the retrieved chunks only. It does not generate final AI
+answers yet.
