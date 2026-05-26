@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 
-import AnswerBox from "./components/AnswerBox.jsx";
 import BackendStatus from "./components/BackendStatus.jsx";
-import PdfUploadForm from "./components/PdfUploadForm.jsx";
-import RetrievalSearch from "./components/RetrievalSearch.jsx";
+import RagWorkspace from "./components/RagWorkspace.jsx";
 import { apiBaseUrl, getBackendHealth } from "./services/healthApi.js";
 
 function App() {
@@ -32,23 +30,22 @@ function App() {
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col justify-center px-6 py-12">
+      <div className="mx-auto w-full max-w-7xl px-6 py-8">
         <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">
           Enterprise RAG Assistant
         </p>
 
-        <div className="mt-4 max-w-3xl">
-          <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
-            Full-stack starter is ready.
+        <div className="mt-4 max-w-4xl">
+          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+            Upload, index, and ask questions about enterprise PDFs.
           </h1>
-          <p className="mt-5 text-lg leading-8 text-slate-700">
-            This is the initial React, Vite, Tailwind CSS, and FastAPI setup.
-            Document upload, retrieval, and AI chat features will be added in
-            later steps.
+          <p className="mt-4 text-base leading-7 text-slate-700">
+            Process a document through the full RAG pipeline, then ask grounded
+            questions with source chunks visible for inspection.
           </p>
         </div>
 
-        <div className="mt-8 space-y-4">
+        <div className="mt-6 space-y-5">
           <BackendStatus
             errorMessage={errorMessage}
             healthMessage={healthMessage}
@@ -56,11 +53,7 @@ function App() {
             isLoading={isLoading}
           />
 
-          <PdfUploadForm />
-
-          <RetrievalSearch />
-
-          <AnswerBox />
+          <RagWorkspace />
 
           <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
             <p className="text-sm font-medium text-slate-500">
