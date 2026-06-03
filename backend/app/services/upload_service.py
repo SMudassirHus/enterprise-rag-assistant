@@ -19,16 +19,18 @@ def validate_pdf_file(file: UploadFile) -> None:
         )
 
 
-def build_stored_filename(original_filename: str) -> str:
+def build_stored_filename(document_id: str, original_filename: str) -> str:
     safe_name = Path(original_filename).name
-    return f"{uuid4().hex}_{safe_name}"
+    return f"{document_id}_{safe_name}"
 
 
-async def save_uploaded_pdf(file: UploadFile, upload_dir: Path) -> str:
+async def save_uploaded_pdf(file: UploadFile, upload_dir: Path) -> dict[str, str]:
     validate_pdf_file(file)
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    stored_filename = build_stored_filename(file.filename or "document.pdf")
+    document_id = uuid4().hex
+    original_filename = Path(file.filename or "document.pdf").name
+    stored_filename = build_stored_filename(document_id, original_filename)
     destination = upload_dir / stored_filename
 
     try:
@@ -42,4 +44,8 @@ async def save_uploaded_pdf(file: UploadFile, upload_dir: Path) -> str:
     finally:
         await file.close()
 
-    return stored_filename
+    return {
+        "document_id": document_id,
+        "original_filename": original_filename,
+        "stored_filename": stored_filename,
+    }

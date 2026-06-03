@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass
+from collections.abc import Iterator
 
 from fastapi import HTTPException, status
 from openai import OpenAIError
@@ -27,7 +28,8 @@ def build_context_from_chunks(chunks: list[RetrievedChunk]) -> str:
             "\n".join(
                 [
                     f"Source {position}",
-                    f"Document: {chunk.document_filename}",
+                    f"Document: {chunk.original_filename}",
+                    f"Document ID: {chunk.document_id}",
                     f"Chunk index: {chunk.chunk_index}",
                     f"Text: {chunk.text}",
                 ]
@@ -35,6 +37,43 @@ def build_context_from_chunks(chunks: list[RetrievedChunk]) -> str:
         )
 
     return "\n\n---\n\n".join(context_blocks)
+
+
+def build_answer_prompt(question: str, context: str) -> str:
+    return (
+        "Retrieved document context:\n"
+        f"{context}\n\n"
+        "User question:\n"
+        f"{question}\n\n"
+        "Grounded answer:"
+    )
+
+
+def build_answer_instructions() -> str:
+    return (
+        "You are an enterprise document assistant. Answer the user's question "
+        "using only the provided retrieved document context. Do not use outside "
+        "knowledge. If the answer is not present in the context, respond exactly "
+        f"with: {FALLBACK_ANSWER}"
+    )
+
+
+def retrieve_answer_sources(
+    question: str,
+    api_key: str,
+    embedding_model: str,
+    db_path,
+    collection_name: str,
+    top_k: int,
+) -> list[RetrievedChunk]:
+    return retrieve_relevant_chunks(
+        question=question,
+        api_key=api_key,
+        embedding_model=embedding_model,
+        db_path=db_path,
+        collection_name=collection_name,
+        top_k=top_k,
+    )
 
 
 def generate_grounded_answer(
@@ -46,7 +85,7 @@ def generate_grounded_answer(
     collection_name: str,
     top_k: int,
 ) -> AnswerResult:
-    retrieved_chunks = retrieve_relevant_chunks(
+    retrieved_chunks = retrieve_answer_sources(
         question=question,
         api_key=api_key,
         embedding_model=embedding_model,
@@ -65,25 +104,11 @@ def generate_grounded_answer(
     client = create_openai_client(api_key)
     context = build_context_from_chunks(retrieved_chunks)
 
-    instructions = (
-        "You are an enterprise document assistant. Answer the user's question "
-        "using only the provided retrieved document context. Do not use outside "
-        "knowledge. If the answer is not present in the context, respond exactly "
-        f"with: {FALLBACK_ANSWER}"
-    )
-    prompt = (
-        "Retrieved document context:\n"
-        f"{context}\n\n"
-        "User question:\n"
-        f"{question}\n\n"
-        "Grounded answer:"
-    )
-
     try:
         response = client.responses.create(
             model=chat_model,
-            instructions=instructions,
-            input=prompt,
+            instructions=build_answer_instructions(),
+            input=build_answer_prompt(question, context),
         )
     except OpenAIError as exc:
         logger.exception("OpenAI answer generation request failed")
@@ -104,3 +129,41 @@ def generate_grounded_answer(
         source_chunks=retrieved_chunks,
         model=chat_model,
     )
+
+
+def stream_grounded_answer_text(
+    question: str,
+    source_chunks: list[RetrievedChunk],
+    api_key: str,
+    chat_model: str,
+) -> Iterator[str]:
+    if not source_chunks:
+        yield FALLBACK_ANSWER
+        return
+
+    client = create_openai_client(api_key)
+    context = build_context_from_chunks(source_chunks)
+
+    try:
+        stream = client.responses.create(
+            model=chat_model,
+            instructions=build_answer_instructions(),
+            input=build_answer_prompt(question, context),
+            stream=True,
+        )
+
+        for event in stream:
+            event_type = getattr(event, "type", "")
+            if event_type == "response.output_text.delta":
+                delta = getattr(event, "delta", "")
+                if delta:
+                    yield delta
+            elif event_type == "response.error":
+                error = getattr(event, "error", None)
+                raise RuntimeError(str(error or "OpenAI streaming error"))
+    except OpenAIError as exc:
+        logger.exception("OpenAI streaming answer request failed")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="OpenAI streaming answer request failed.",
+        ) from exc

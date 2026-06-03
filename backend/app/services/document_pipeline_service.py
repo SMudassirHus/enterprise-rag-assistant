@@ -1,6 +1,10 @@
 import logging
 
 from app.core.config import settings
+from app.services.document_metadata_service import (
+    get_document_by_stored_filename,
+    update_document_status,
+)
 from app.services.embedding_service import (
     EmbeddingResult,
     generate_chunk_embeddings,
@@ -39,10 +43,24 @@ def generate_embeddings_for_uploaded_pdf(filename: str) -> EmbeddingResult:
 
 def store_uploaded_pdf_in_vector_database(filename: str) -> dict[str, int | str]:
     embedding_result = generate_embeddings_for_uploaded_pdf(filename)
+    document = get_document_by_stored_filename(
+        settings.document_metadata_path,
+        filename,
+    ) or {}
     return store_chunk_embeddings(
         chunk_embeddings=embedding_result.chunk_embeddings,
         db_path=settings.chroma_path,
         collection_name=settings.chroma_collection_name,
         filename=filename,
         embedding_model=embedding_result.model,
+        document_id=document.get("document_id", filename),
+        original_filename=document.get("original_filename", filename),
+    )
+
+
+def mark_document_status(filename: str, **status_updates: bool) -> dict | None:
+    return update_document_status(
+        settings.document_metadata_path,
+        filename,
+        **status_updates,
     )

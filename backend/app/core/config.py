@@ -15,6 +15,10 @@ class Settings:
     app_env: str = os.getenv("APP_ENV", "development")
     api_prefix: str = os.getenv("API_PREFIX", "/api")
     upload_dir: str = os.getenv("UPLOAD_DIR", "uploads")
+    document_metadata_file: str = os.getenv(
+        "DOCUMENT_METADATA_FILE",
+        "uploads/documents.json",
+    )
     chunk_size: int = int(os.getenv("CHUNK_SIZE", "1000"))
     chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "200"))
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
@@ -42,6 +46,10 @@ class Settings:
     @property
     def upload_path(self) -> Path:
         return Path(self.upload_dir)
+
+    @property
+    def document_metadata_path(self) -> Path:
+        return Path(self.document_metadata_file)
 
     @property
     def chroma_path(self) -> Path:

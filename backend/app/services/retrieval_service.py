@@ -8,7 +8,9 @@ from app.services.vector_store_service import query_similar_chunks
 class RetrievedChunk:
     text: str
     chunk_index: int | None
+    document_id: str
     document_filename: str
+    original_filename: str
     relevance_score: float | None
     distance: float | None
 
@@ -53,7 +55,12 @@ def retrieve_relevant_chunks(
             RetrievedChunk(
                 text=document,
                 chunk_index=metadata.get("chunk_index"),
+                document_id=metadata.get("document_id", metadata.get("filename", "unknown")),
                 document_filename=metadata.get("filename", "unknown"),
+                original_filename=metadata.get(
+                    "original_filename",
+                    metadata.get("filename", "unknown"),
+                ),
                 relevance_score=distance_to_relevance_score(distance),
                 distance=distance,
             )

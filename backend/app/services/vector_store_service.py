@@ -32,6 +32,8 @@ def store_chunk_embeddings(
     collection_name: str,
     filename: str,
     embedding_model: str,
+    document_id: str | None = None,
+    original_filename: str | None = None,
 ) -> dict[str, int | str]:
     if not chunk_embeddings:
         raise HTTPException(
@@ -50,6 +52,8 @@ def store_chunk_embeddings(
     metadatas = [
         {
             "filename": filename,
+            "document_id": document_id or filename,
+            "original_filename": original_filename or filename,
             "chunk_index": item.chunk.index,
             "character_count": item.chunk.character_count,
             "embedding_model": embedding_model,
@@ -74,7 +78,9 @@ def store_chunk_embeddings(
     return {
         "total_chunks_stored": len(chunk_embeddings),
         "collection_name": collection_name,
+        "document_id": document_id or filename,
         "document_filename": filename,
+        "original_filename": original_filename or filename,
     }
 
 

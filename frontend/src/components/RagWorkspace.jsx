@@ -1,61 +1,144 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import LoadingButton from "./LoadingButton.jsx";
 import StatusAlert from "./StatusAlert.jsx";
-import { generateAnswer } from "../services/answerApi.js";
+import { streamAnswer } from "../services/answerApi.js";
 import { generatePdfChunks } from "../services/chunkApi.js";
 import { generatePdfEmbeddings } from "../services/embeddingApi.js";
 import { extractPdfText } from "../services/extractionApi.js";
-import { uploadPdf } from "../services/uploadApi.js";
+import {
+  listUploadedDocuments,
+  uploadPdfs,
+} from "../services/uploadApi.js";
 import { storePdfInVectorDatabase } from "../services/vectorStoreApi.js";
 
 const pipelineSteps = [
-  { action: "upload", key: "uploaded", label: "PDF uploaded" },
-  { action: "extract", key: "extracted", label: "Text extracted" },
-  { action: "chunks", key: "chunked", label: "Chunks created" },
-  { action: "embeddings", key: "embedded", label: "Embeddings generated" },
-  { action: "store", key: "stored", label: "Stored in ChromaDB" },
+  { action: "upload", key: "uploaded", label: "Uploaded" },
+  { action: "extract", key: "text_extracted", label: "Extracted" },
+  { action: "chunks", key: "chunks_created", label: "Chunked" },
+  { action: "embeddings", key: "embeddings_generated", label: "Embedded" },
+  { action: "store", key: "stored_in_vector_db", label: "Stored" },
 ];
 
 function formatScore(score) {
-  if (score === null || score === undefined) {
-    return "Not available";
-  }
-
-  return score.toFixed(4);
+  return score === null || score === undefined ? "N/A" : score.toFixed(4);
 }
 
 function getErrorMessage(error) {
   return error instanceof Error ? error.message : "Something went wrong.";
 }
 
-function PipelineStatus({ loadingAction, status }) {
+function getDocumentStatus(document) {
+  return {
+    uploaded: Boolean(document),
+    text_extracted: Boolean(document?.status?.text_extracted),
+    chunks_created: Boolean(document?.status?.chunks_created),
+    embeddings_generated: Boolean(document?.status?.embeddings_generated),
+    stored_in_vector_db: Boolean(document?.status?.stored_in_vector_db),
+  };
+}
+
+function isDocumentReady(document) {
+  return getDocumentStatus(document).stored_in_vector_db;
+}
+
+function countReadyDocuments(documents) {
+  return documents.filter(isDocumentReady).length;
+}
+
+function StatusBadge({ children, tone = "slate" }) {
+  const tones = {
+    amber: "bg-amber-50 text-amber-700 ring-amber-200",
+    blue: "bg-blue-50 text-blue-700 ring-blue-200",
+    emerald: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    slate: "bg-slate-100 text-slate-600 ring-slate-200",
+  };
+
   return (
-    <div className="space-y-3">
+    <span className={`rounded-md px-2 py-1 text-xs font-semibold ring-1 ${tones[tone]}`}>
+      {children}
+    </span>
+  );
+}
+
+function PipelineStatus({ document, loadingAction }) {
+  const status = getDocumentStatus(document);
+
+  return (
+    <div className="grid grid-cols-5 gap-2">
       {pipelineSteps.map((step) => {
         const isComplete = Boolean(status[step.key]);
-        const isCurrent = loadingAction === step.action;
-        const label = isCurrent ? "Running" : isComplete ? "Done" : "Pending";
-        const statusClass = isCurrent
-          ? "bg-blue-50 text-blue-700"
-          : isComplete
-            ? "bg-emerald-50 text-emerald-700"
-            : "bg-slate-100 text-slate-500";
+        const isRunning = loadingAction === step.action;
+        const tone = isRunning ? "blue" : isComplete ? "emerald" : "slate";
 
         return (
           <div
-            className="flex items-center justify-between gap-4 rounded-md border border-slate-200 bg-white px-3 py-2"
+            className="rounded-md border border-slate-200 bg-white px-2 py-2 text-center"
             key={step.key}
+            title={step.label}
           >
-            <span className="text-sm font-medium text-slate-700">
+            <div
+              className={`mx-auto h-2 w-2 rounded-full ${
+                tone === "emerald"
+                  ? "bg-emerald-500"
+                  : tone === "blue"
+                    ? "bg-blue-500"
+                    : "bg-slate-300"
+              }`}
+            />
+            <p className="mt-2 truncate text-xs font-medium text-slate-600">
               {step.label}
-            </span>
-            <span
-              className={`rounded-md px-2 py-1 text-xs font-semibold ${statusClass}`}
-            >
-              {label}
-            </span>
+            </p>
           </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DocumentList({ documents, onSelect, selectedDocumentId }) {
+  if (!documents.length) {
+    return (
+      <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-center">
+        <p className="text-sm font-medium text-slate-700">No documents yet</p>
+        <p className="mt-1 text-sm text-slate-500">
+          Upload one or more PDFs to start building the local knowledge base.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {documents.map((document) => {
+        const isSelected = document.document_id === selectedDocumentId;
+        const ready = isDocumentReady(document);
+
+        return (
+          <button
+            className={`w-full rounded-md border px-3 py-3 text-left transition ${
+              isSelected
+                ? "border-blue-300 bg-blue-50 shadow-sm"
+                : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+            }`}
+            key={document.document_id}
+            onClick={() => onSelect(document.document_id)}
+            type="button"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-900">
+                  {document.original_filename}
+                </p>
+                <p className="mt-1 truncate font-mono text-xs text-slate-500">
+                  {document.stored_filename}
+                </p>
+              </div>
+              <StatusBadge tone={ready ? "emerald" : "amber"}>
+                {ready ? "Indexed" : "Draft"}
+              </StatusBadge>
+            </div>
+          </button>
         );
       })}
     </div>
@@ -68,31 +151,28 @@ function SourceChunks({ sources }) {
   }
 
   return (
-    <details className="rounded-md border border-slate-200 bg-white p-4">
+    <details className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <summary className="cursor-pointer text-sm font-semibold text-slate-900">
-        Source chunks used ({sources.length})
+        Source chunks ({sources.length})
       </summary>
-
-      <div className="mt-4 space-y-3">
+      <div className="mt-4 grid gap-3">
         {sources.map((source, index) => (
           <article
             className="rounded-md border border-slate-200 bg-slate-50 p-4"
-            key={`${source.document_filename}-${source.chunk_index}-${index}`}
+            key={`${source.document_id}-${source.chunk_index}-${index}`}
           >
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <h4 className="text-sm font-semibold text-slate-900">
-                  Chunk {source.chunk_index ?? "Unknown"}
+              <div className="min-w-0">
+                <h4 className="truncate text-sm font-semibold text-slate-900">
+                  {source.original_filename ?? source.document_filename}
                 </h4>
-                <p className="mt-1 break-all font-mono text-xs text-slate-500">
-                  {source.document_filename}
+                <p className="mt-1 text-xs text-slate-500">
+                  Chunk {source.chunk_index ?? "Unknown"}
                 </p>
               </div>
-              <p className="text-xs text-slate-500">
-                Relevance {formatScore(source.relevance_score)}
-              </p>
+              <StatusBadge>Score {formatScore(source.relevance_score)}</StatusBadge>
             </div>
-            <p className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+            <p className="mt-3 max-h-44 overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
               {source.text}
             </p>
           </article>
@@ -102,56 +182,63 @@ function SourceChunks({ sources }) {
   );
 }
 
+function MetricCard({ label, value }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-3">
+      <dt className="text-xs font-medium uppercase text-slate-500">{label}</dt>
+      <dd className="mt-1 truncate text-sm font-semibold text-slate-900">
+        {value ?? "-"}
+      </dd>
+    </div>
+  );
+}
+
 function RagWorkspace() {
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [documentName, setDocumentName] = useState("");
-  const [storedFilename, setStoredFilename] = useState("");
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [documents, setDocuments] = useState([]);
+  const [selectedDocumentId, setSelectedDocumentId] = useState("");
   const [question, setQuestion] = useState("");
   const [answerResult, setAnswerResult] = useState(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
-  const [pipelineStatus, setPipelineStatus] = useState({
-    uploaded: false,
-    extracted: false,
-    chunked: false,
-    embedded: false,
-    stored: false,
-  });
-  const [summary, setSummary] = useState({
-    characterCount: null,
-    totalChunks: null,
-    embeddingDimensions: null,
-    collectionName: "",
-  });
   const [loadingAction, setLoadingAction] = useState("");
+  const [summaryByDocumentId, setSummaryByDocumentId] = useState({});
 
+  const selectedDocument = useMemo(
+    () => documents.find((document) => document.document_id === selectedDocumentId),
+    [documents, selectedDocumentId],
+  );
+  const selectedSummary = summaryByDocumentId[selectedDocumentId] ?? {};
+  const indexedCount = countReadyDocuments(documents);
+  const hasIndexedDocuments = indexedCount > 0;
   const isBusy = Boolean(loadingAction);
 
-  function resetWorkflow(file) {
-    setSelectedFile(file);
-    setDocumentName(file?.name ?? "");
-    setStoredFilename("");
-    setQuestion("");
-    setAnswerResult(null);
-    setStatusMessage("");
-    setErrorMessage("");
-    setPipelineStatus({
-      uploaded: false,
-      extracted: false,
-      chunked: false,
-      embedded: false,
-      stored: false,
-    });
-    setSummary({
-      characterCount: null,
-      totalChunks: null,
-      embeddingDimensions: null,
-      collectionName: "",
-    });
-  }
+  useEffect(() => {
+    async function loadDocuments() {
+      try {
+        const result = await listUploadedDocuments();
+        setDocuments(result.documents);
+        setSelectedDocumentId((current) => current || result.documents[0]?.document_id || "");
+      } catch {
+        setDocuments([]);
+      }
+    }
 
-  function handleFileChange(event) {
-    resetWorkflow(event.target.files[0] ?? null);
+    loadDocuments();
+  }, []);
+
+  function updateDocument(updatedDocument) {
+    if (!updatedDocument) {
+      return;
+    }
+
+    setDocuments((current) =>
+      current.map((document) =>
+        document.document_id === updatedDocument.document_id
+          ? updatedDocument
+          : document,
+      ),
+    );
   }
 
   async function runAction(actionName, action) {
@@ -171,70 +258,89 @@ function RagWorkspace() {
   async function handleUpload(event) {
     event.preventDefault();
 
-    if (!selectedFile) {
-      setErrorMessage("Select a PDF before uploading.");
+    if (!selectedFiles.length) {
+      setErrorMessage("Select one or more PDF files before uploading.");
       return;
     }
 
-    if (selectedFile.type !== "application/pdf") {
+    const nonPdf = selectedFiles.find((file) => file.type !== "application/pdf");
+    if (nonPdf) {
       setErrorMessage("Only PDF files can be uploaded.");
       return;
     }
 
     await runAction("upload", async () => {
-      const result = await uploadPdf(selectedFile);
-      setStoredFilename(result.filename);
-      setPipelineStatus((current) => ({ ...current, uploaded: true }));
-      setStatusMessage("PDF uploaded successfully.");
+      const result = await uploadPdfs(selectedFiles);
+      setDocuments((current) => [...result.documents, ...current]);
+      setSelectedDocumentId(result.documents[0]?.document_id ?? "");
+      setSelectedFiles([]);
+      event.target.reset();
+      setAnswerResult(null);
+      setStatusMessage(`${result.total_documents} PDF document(s) uploaded.`);
     });
   }
 
   async function handleExtractText() {
-    setAnswerResult(null);
     await runAction("extract", async () => {
-      const result = await extractPdfText(storedFilename);
-      setPipelineStatus((current) => ({ ...current, extracted: true }));
-      setSummary((current) => ({
+      const result = await extractPdfText(selectedDocument.stored_filename);
+      updateDocument(result.document);
+      setSummaryByDocumentId((current) => ({
         ...current,
-        characterCount: result.character_count,
+        [selectedDocumentId]: {
+          ...current[selectedDocumentId],
+          characterCount: result.character_count,
+        },
       }));
+      setAnswerResult(null);
       setStatusMessage("Text extracted successfully.");
     });
   }
 
   async function handleCreateChunks() {
-    setAnswerResult(null);
     await runAction("chunks", async () => {
-      const result = await generatePdfChunks(storedFilename);
-      setPipelineStatus((current) => ({ ...current, chunked: true }));
-      setSummary((current) => ({ ...current, totalChunks: result.total_chunks }));
+      const result = await generatePdfChunks(selectedDocument.stored_filename);
+      updateDocument(result.document);
+      setSummaryByDocumentId((current) => ({
+        ...current,
+        [selectedDocumentId]: {
+          ...current[selectedDocumentId],
+          totalChunks: result.total_chunks,
+        },
+      }));
+      setAnswerResult(null);
       setStatusMessage("Chunks created successfully.");
     });
   }
 
   async function handleGenerateEmbeddings() {
-    setAnswerResult(null);
     await runAction("embeddings", async () => {
-      const result = await generatePdfEmbeddings(storedFilename);
-      setPipelineStatus((current) => ({ ...current, embedded: true }));
-      setSummary((current) => ({
+      const result = await generatePdfEmbeddings(selectedDocument.stored_filename);
+      updateDocument(result.document);
+      setSummaryByDocumentId((current) => ({
         ...current,
-        embeddingDimensions: result.embedding_dimensions,
+        [selectedDocumentId]: {
+          ...current[selectedDocumentId],
+          embeddingDimensions: result.embedding_dimensions,
+        },
       }));
+      setAnswerResult(null);
       setStatusMessage("Embeddings generated successfully.");
     });
   }
 
   async function handleStoreInVectorDatabase() {
-    setAnswerResult(null);
     await runAction("store", async () => {
-      const result = await storePdfInVectorDatabase(storedFilename);
-      setPipelineStatus((current) => ({ ...current, stored: true }));
-      setSummary((current) => ({
+      const result = await storePdfInVectorDatabase(selectedDocument.stored_filename);
+      updateDocument(result.document);
+      setSummaryByDocumentId((current) => ({
         ...current,
-        collectionName: result.collection_name,
-        totalChunks: result.total_chunks_stored,
+        [selectedDocumentId]: {
+          ...current[selectedDocumentId],
+          totalChunks: result.total_chunks_stored,
+          collectionName: result.collection_name,
+        },
       }));
+      setAnswerResult(null);
       setStatusMessage("Document stored in ChromaDB successfully.");
     });
   }
@@ -248,231 +354,278 @@ function RagWorkspace() {
     }
 
     await runAction("answer", async () => {
-      const result = await generateAnswer(question);
-      setAnswerResult(result);
-      setStatusMessage("Answer generated from retrieved document context.");
+      setAnswerResult({
+        question,
+        answer: "",
+        model: "",
+        sources: [],
+        isStreaming: true,
+      });
+
+      await streamAnswer(question, {
+        onMetadata: (metadata) => {
+          setAnswerResult((current) => ({
+            ...current,
+            question: metadata.question,
+            model: metadata.model,
+            sources: metadata.sources,
+          }));
+        },
+        onDelta: (delta) => {
+          setAnswerResult((current) => ({
+            ...current,
+            answer: `${current?.answer ?? ""}${delta}`,
+          }));
+        },
+        onDone: () => {
+          setAnswerResult((current) => ({ ...current, isStreaming: false }));
+          setStatusMessage("Answer generated from all indexed documents.");
+        },
+        onError: () => {
+          setAnswerResult((current) =>
+            current ? { ...current, isStreaming: false } : current,
+          );
+        },
+      });
     });
   }
 
+  const selectedStatus = getDocumentStatus(selectedDocument);
+
   return (
-    <div className="grid gap-5 lg:grid-cols-[minmax(280px,360px)_1fr]">
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <div>
-          <p className="text-xs font-semibold uppercase text-blue-700">
-            Document pipeline
-          </p>
-          <h2 className="mt-2 text-lg font-semibold text-slate-950">
-            Prepare a PDF for RAG
-          </h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Upload a PDF, process it into chunks, embed it, and store it in the
-            local vector database.
-          </p>
-        </div>
-
-        <form className="mt-5 space-y-3" onSubmit={handleUpload}>
-          <label
-            className="block text-sm font-medium text-slate-700"
-            htmlFor="rag-pdf-file"
-          >
-            PDF file
-          </label>
-          <input
-            accept="application/pdf"
-            className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 file:mr-4 file:rounded-md file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100"
-            id="rag-pdf-file"
-            onChange={handleFileChange}
-            type="file"
-          />
-          <button
-            className="w-full rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-            disabled={isBusy || !selectedFile}
-            type="submit"
-          >
-            {loadingAction === "upload" ? "Uploading..." : "Upload PDF"}
-          </button>
-        </form>
-
-        <div className="mt-5 rounded-md border border-slate-200 bg-slate-50 p-4">
-          <p className="text-sm font-medium text-slate-700">Current document</p>
-          <p className="mt-1 break-all font-mono text-sm text-slate-800">
-            {documentName || "No PDF selected"}
-          </p>
-          {storedFilename && (
-            <p className="mt-2 break-all text-xs text-slate-500">
-              Stored as {storedFilename}
-            </p>
-          )}
-        </div>
-
-        <div className="mt-5">
-          <PipelineStatus loadingAction={loadingAction} status={pipelineStatus} />
-        </div>
-
-        <div className="mt-5 grid gap-2">
-          <LoadingButton
-            className="bg-slate-900 text-white hover:bg-slate-800"
-            disabled={isBusy || !pipelineStatus.uploaded}
-            isLoading={loadingAction === "extract"}
-            loadingLabel="Extracting..."
-            onClick={handleExtractText}
-            type="button"
-          >
-            Extract Text
-          </LoadingButton>
-          <LoadingButton
-            className="bg-slate-900 text-white hover:bg-slate-800"
-            disabled={isBusy || !pipelineStatus.extracted}
-            isLoading={loadingAction === "chunks"}
-            loadingLabel="Creating..."
-            onClick={handleCreateChunks}
-            type="button"
-          >
-            Create Chunks
-          </LoadingButton>
-          <LoadingButton
-            className="bg-slate-900 text-white hover:bg-slate-800"
-            disabled={isBusy || !pipelineStatus.chunked}
-            isLoading={loadingAction === "embeddings"}
-            loadingLabel="Generating..."
-            onClick={handleGenerateEmbeddings}
-            type="button"
-          >
-            Generate Embeddings
-          </LoadingButton>
-          <LoadingButton
-            className="bg-blue-700 text-white hover:bg-blue-800"
-            disabled={isBusy || !pipelineStatus.embedded}
-            isLoading={loadingAction === "store"}
-            loadingLabel="Storing..."
-            onClick={handleStoreInVectorDatabase}
-            type="button"
-          >
-            Store in Vector Database
-          </LoadingButton>
-        </div>
-
-        <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
-          <div className="rounded-md bg-slate-50 p-3">
-            <dt className="font-medium text-slate-500">Characters</dt>
-            <dd className="mt-1 text-slate-900">
-              {summary.characterCount ?? "-"}
-            </dd>
-          </div>
-          <div className="rounded-md bg-slate-50 p-3">
-            <dt className="font-medium text-slate-500">Chunks</dt>
-            <dd className="mt-1 text-slate-900">{summary.totalChunks ?? "-"}</dd>
-          </div>
-          <div className="rounded-md bg-slate-50 p-3">
-            <dt className="font-medium text-slate-500">Dimensions</dt>
-            <dd className="mt-1 text-slate-900">
-              {summary.embeddingDimensions ?? "-"}
-            </dd>
-          </div>
-          <div className="rounded-md bg-slate-50 p-3">
-            <dt className="font-medium text-slate-500">Collection</dt>
-            <dd className="mt-1 break-all text-slate-900">
-              {summary.collectionName || "-"}
-            </dd>
-          </div>
-        </dl>
-      </section>
-
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase text-blue-700">
-              Grounded chat
-            </p>
-            <h2 className="mt-2 text-lg font-semibold text-slate-950">
-              Ask your document
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Answers are generated from retrieved ChromaDB chunks only.
-            </p>
-          </div>
-          <span
-            className={`w-fit rounded-md px-3 py-2 text-xs font-semibold ${
-              pipelineStatus.stored
-                ? "bg-emerald-50 text-emerald-700"
-                : "bg-amber-50 text-amber-700"
-            }`}
-          >
-            {pipelineStatus.stored ? "Ready to ask" : "Store vectors first"}
-          </span>
-        </div>
-
-        <div className="mt-5 min-h-72 rounded-lg border border-slate-200 bg-slate-50 p-4">
-          {!answerResult && (
-            <div className="flex min-h-56 items-center justify-center text-center">
-              <div className="max-w-md">
-                <p className="text-sm font-medium text-slate-700">
-                  No answer yet
-                </p>
-                <p className="mt-2 text-sm leading-6 text-slate-500">
-                  Once the document is stored in ChromaDB, ask a question and
-                  the assistant will answer with source chunks attached.
-                </p>
-              </div>
+    <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <aside className="space-y-4">
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase text-blue-700">
+                Knowledge base
+              </p>
+              <h2 className="mt-2 text-lg font-semibold text-slate-950">
+                Documents
+              </h2>
             </div>
-          )}
+            <StatusBadge tone={hasIndexedDocuments ? "emerald" : "amber"}>
+              {indexedCount}/{documents.length} indexed
+            </StatusBadge>
+          </div>
 
-          {answerResult && (
-            <div className="space-y-4">
-              <div className="flex justify-end">
-                <div className="max-w-2xl rounded-lg bg-blue-700 px-4 py-3 text-sm leading-6 text-white">
-                  {answerResult.question}
-                </div>
+          <form className="mt-5 space-y-3" onSubmit={handleUpload}>
+            <input
+              accept="application/pdf"
+              className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 file:mr-4 file:rounded-md file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100"
+              multiple
+              onChange={(event) => setSelectedFiles(Array.from(event.target.files))}
+              type="file"
+            />
+            <LoadingButton
+              className="w-full bg-blue-700 text-white hover:bg-blue-800"
+              disabled={isBusy || !selectedFiles.length}
+              isLoading={loadingAction === "upload"}
+              loadingLabel="Uploading..."
+              type="submit"
+            >
+              Upload PDFs
+            </LoadingButton>
+          </form>
+        </section>
+
+        <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-900">
+              Uploaded documents
+            </h3>
+            <span className="text-xs text-slate-500">{documents.length} total</span>
+          </div>
+          <div className="max-h-[420px] overflow-auto pr-1">
+            <DocumentList
+              documents={documents}
+              onSelect={setSelectedDocumentId}
+              selectedDocumentId={selectedDocumentId}
+            />
+          </div>
+        </section>
+      </aside>
+
+      <main className="space-y-5">
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase text-blue-700">
+                Selected document
+              </p>
+              <h2 className="mt-2 truncate text-xl font-semibold text-slate-950">
+                {selectedDocument?.original_filename ?? "No document selected"}
+              </h2>
+              {selectedDocument && (
+                <p className="mt-1 truncate font-mono text-xs text-slate-500">
+                  {selectedDocument.stored_filename}
+                </p>
+              )}
+            </div>
+            <div className="w-full xl:w-[420px]">
+              <PipelineStatus
+                document={selectedDocument}
+                loadingAction={loadingAction}
+              />
+            </div>
+          </div>
+
+          {selectedDocument && (
+            <>
+              <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                <LoadingButton
+                  className="bg-slate-900 text-white hover:bg-slate-800"
+                  disabled={isBusy}
+                  isLoading={loadingAction === "extract"}
+                  loadingLabel="Extracting..."
+                  onClick={handleExtractText}
+                  type="button"
+                >
+                  Extract
+                </LoadingButton>
+                <LoadingButton
+                  className="bg-slate-900 text-white hover:bg-slate-800"
+                  disabled={isBusy || !selectedStatus.text_extracted}
+                  isLoading={loadingAction === "chunks"}
+                  loadingLabel="Chunking..."
+                  onClick={handleCreateChunks}
+                  type="button"
+                >
+                  Chunk
+                </LoadingButton>
+                <LoadingButton
+                  className="bg-slate-900 text-white hover:bg-slate-800"
+                  disabled={isBusy || !selectedStatus.chunks_created}
+                  isLoading={loadingAction === "embeddings"}
+                  loadingLabel="Embedding..."
+                  onClick={handleGenerateEmbeddings}
+                  type="button"
+                >
+                  Embed
+                </LoadingButton>
+                <LoadingButton
+                  className="bg-blue-700 text-white hover:bg-blue-800"
+                  disabled={isBusy || !selectedStatus.embeddings_generated}
+                  isLoading={loadingAction === "store"}
+                  loadingLabel="Storing..."
+                  onClick={handleStoreInVectorDatabase}
+                  type="button"
+                >
+                  Store
+                </LoadingButton>
               </div>
-              <div className="max-w-3xl rounded-lg border border-slate-200 bg-white px-4 py-3">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <p className="text-sm font-semibold text-slate-900">
-                    Assistant
+
+              <dl className="mt-5 grid gap-3 sm:grid-cols-4">
+                <MetricCard
+                  label="Characters"
+                  value={selectedSummary.characterCount}
+                />
+                <MetricCard label="Chunks" value={selectedSummary.totalChunks} />
+                <MetricCard
+                  label="Dimensions"
+                  value={selectedSummary.embeddingDimensions}
+                />
+                <MetricCard
+                  label="Collection"
+                  value={selectedSummary.collectionName}
+                />
+              </dl>
+            </>
+          )}
+        </section>
+
+        <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 px-5 py-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase text-blue-700">
+                  Grounded chat
+                </p>
+                <h2 className="mt-1 text-lg font-semibold text-slate-950">
+                  Ask all indexed documents
+                </h2>
+              </div>
+              <StatusBadge tone={hasIndexedDocuments ? "emerald" : "amber"}>
+                {hasIndexedDocuments ? "Ready to ask" : "Index a document first"}
+              </StatusBadge>
+            </div>
+          </div>
+
+          <div className="min-h-[420px] bg-slate-50 p-5">
+            {!answerResult && (
+              <div className="flex min-h-[340px] items-center justify-center text-center">
+                <div className="max-w-md">
+                  <p className="text-sm font-medium text-slate-700">
+                    No conversation yet
                   </p>
-                  <p className="break-all font-mono text-xs text-slate-500">
-                    {answerResult.model}
+                  <p className="mt-2 text-sm leading-6 text-slate-500">
+                    Store at least one document, then ask a question. Answers
+                    stream from retrieved source chunks.
                   </p>
                 </div>
-                <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                  {answerResult.answer}
-                </p>
               </div>
-              <SourceChunks sources={answerResult.sources} />
+            )}
+
+            {answerResult && (
+              <div className="space-y-4">
+                <div className="flex justify-end">
+                  <div className="max-w-2xl rounded-lg bg-blue-700 px-4 py-3 text-sm leading-6 text-white shadow-sm">
+                    {answerResult.question}
+                  </div>
+                </div>
+                <div className="max-w-3xl rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <p className="text-sm font-semibold text-slate-900">
+                      Assistant
+                    </p>
+                    <p className="break-all font-mono text-xs text-slate-500">
+                      {answerResult.model}
+                    </p>
+                  </div>
+                  <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                    {answerResult.answer}
+                    {answerResult.isStreaming && (
+                      <span className="ml-1 inline-block h-4 w-2 animate-pulse rounded-sm bg-slate-400 align-middle" />
+                    )}
+                  </p>
+                  {answerResult.isStreaming && !answerResult.answer && (
+                    <p className="mt-3 text-sm text-slate-500">
+                      Reading the most relevant chunks...
+                    </p>
+                  )}
+                </div>
+                <SourceChunks sources={answerResult.sources} />
+              </div>
+            )}
+          </div>
+
+          <form className="border-t border-slate-200 bg-white p-5" onSubmit={handleAskQuestion}>
+            <div className="flex flex-col gap-3 lg:flex-row">
+              <textarea
+                className="min-h-24 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
+                disabled={isBusy || !hasIndexedDocuments}
+                onChange={(event) => setQuestion(event.target.value)}
+                placeholder="Ask a question across all indexed PDFs..."
+                value={question}
+              />
+              <LoadingButton
+                className="bg-slate-900 text-white hover:bg-slate-800 lg:w-32"
+                disabled={isBusy || !hasIndexedDocuments}
+                isLoading={loadingAction === "answer"}
+                loadingLabel="Streaming..."
+                type="submit"
+              >
+                Ask
+              </LoadingButton>
             </div>
-          )}
-        </div>
-
-        <form className="mt-5 space-y-3" onSubmit={handleAskQuestion}>
-          <label
-            className="block text-sm font-medium text-slate-700"
-            htmlFor="rag-question"
-          >
-            Question
-          </label>
-          <textarea
-            className="min-h-24 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
-            disabled={isBusy || !pipelineStatus.stored}
-            id="rag-question"
-            onChange={(event) => setQuestion(event.target.value)}
-            placeholder="Ask a question about the uploaded document..."
-            value={question}
-          />
-          <LoadingButton
-            className="w-full bg-slate-900 text-white hover:bg-slate-800 sm:w-auto"
-            disabled={isBusy || !pipelineStatus.stored}
-            isLoading={loadingAction === "answer"}
-            loadingLabel="Generating answer..."
-            type="submit"
-          >
-            Ask
-          </LoadingButton>
-        </form>
-
-        <div className="mt-4 space-y-3">
-          <StatusAlert message={statusMessage} />
-          <StatusAlert message={errorMessage} type="error" />
-        </div>
-      </section>
+            <div className="mt-4 space-y-3">
+              <StatusAlert message={statusMessage} />
+              <StatusAlert message={errorMessage} type="error" />
+            </div>
+          </form>
+        </section>
+      </main>
     </div>
   );
 }

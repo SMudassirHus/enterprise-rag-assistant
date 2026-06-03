@@ -34,7 +34,9 @@ def search_documents(request: RetrievalRequest) -> dict:
             {
                 "text": match.text,
                 "chunk_index": match.chunk_index,
+                "document_id": match.document_id,
                 "document_filename": match.document_filename,
+                "original_filename": match.original_filename,
                 "relevance_score": match.relevance_score,
                 "distance": match.distance,
             }
