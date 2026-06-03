@@ -118,3 +118,40 @@ def query_similar_chunks(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Could not search vector database.",
         ) from exc
+
+
+def count_document_vectors(
+    db_path: Path,
+    collection_name: str,
+    document_id: str,
+) -> int:
+    try:
+        collection = get_chroma_collection(db_path, collection_name)
+        result = collection.get(where={"document_id": document_id})
+        return len(result.get("ids", []))
+    except Exception:
+        logger.exception("Could not count ChromaDB vectors for document")
+        return 0
+
+
+def delete_document_vectors(
+    db_path: Path,
+    collection_name: str,
+    document_id: str,
+) -> int:
+    try:
+        collection = get_chroma_collection(db_path, collection_name)
+        existing_vectors = collection.get(where={"document_id": document_id})
+        vector_ids = existing_vectors.get("ids", [])
+
+        if not vector_ids:
+            return 0
+
+        collection.delete(ids=vector_ids)
+        return len(vector_ids)
+    except Exception as exc:
+        logger.exception("Could not delete ChromaDB vectors for document")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not remove document vectors from ChromaDB.",
+        ) from exc

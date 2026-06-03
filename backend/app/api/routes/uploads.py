@@ -7,7 +7,9 @@ from pydantic import BaseModel
 from app.core.config import settings
 from app.services.document_metadata_service import (
     create_document_metadata,
+    get_document_by_id,
     load_documents,
+    remove_document_by_id,
 )
 from app.services.document_pipeline_service import (
     generate_embeddings_for_uploaded_pdf,
@@ -18,6 +20,10 @@ from app.services.document_pipeline_service import (
 from app.services.embedding_service import summarize_embedding_result
 from app.services.pdf_extraction_service import extract_text_from_pdf
 from app.services.upload_service import save_uploaded_pdf
+from app.services.vector_store_service import (
+    count_document_vectors,
+    delete_document_vectors,
+)
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
 logger = logging.getLogger(__name__)
@@ -36,6 +42,7 @@ class DocumentMetadataResponse(BaseModel):
     stored_filename: str
     uploaded_at: str
     status: DocumentStatusResponse
+    chunks_count: int = 0
 
 
 class BaseApiResponse(BaseModel):
@@ -99,7 +106,21 @@ class VectorStoreResponse(BaseApiResponse):
     original_filename: str
 
 
+class DeleteDocumentResponse(BaseApiResponse):
+    document_id: str
+    original_filename: str
+    stored_filename: str
+    deleted_pdf: bool
+    deleted_vectors: int
+
+
 def serialize_document(document: dict) -> dict:
+    chunks_count = count_document_vectors(
+        settings.chroma_path,
+        settings.chroma_collection_name,
+        document["document_id"],
+    )
+
     return {
         "document_id": document["document_id"],
         "original_filename": document["original_filename"],
@@ -111,7 +132,25 @@ def serialize_document(document: dict) -> dict:
             "embeddings_generated": document.get("embeddings_generated", False),
             "stored_in_vector_db": document.get("stored_in_vector_db", False),
         },
+        "chunks_count": chunks_count,
     }
+
+
+def delete_uploaded_pdf_file(stored_filename: str) -> bool:
+    upload_dir = settings.upload_path.resolve()
+    pdf_path = (settings.upload_path / stored_filename).resolve()
+
+    if upload_dir not in pdf_path.parents:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid stored filename.",
+        )
+
+    if not pdf_path.exists():
+        return False
+
+    pdf_path.unlink()
+    return True
 
 
 @router.get("", response_model=DocumentListResponse)
@@ -123,6 +162,35 @@ def list_uploaded_documents() -> dict:
         "message": "Documents loaded successfully",
         "total_documents": len(documents),
         "documents": [serialize_document(document) for document in documents],
+    }
+
+
+@router.delete("/{document_id}", response_model=DeleteDocumentResponse)
+def delete_uploaded_document(document_id: str) -> dict:
+    document = get_document_by_id(settings.document_metadata_path, document_id)
+
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document was not found.",
+        )
+
+    deleted_vectors = delete_document_vectors(
+        settings.chroma_path,
+        settings.chroma_collection_name,
+        document["document_id"],
+    )
+    deleted_pdf = delete_uploaded_pdf_file(document["stored_filename"])
+    remove_document_by_id(settings.document_metadata_path, document_id)
+
+    return {
+        "status": "success",
+        "message": "Document removed successfully",
+        "document_id": document["document_id"],
+        "original_filename": document["original_filename"],
+        "stored_filename": document["stored_filename"],
+        "deleted_pdf": deleted_pdf,
+        "deleted_vectors": deleted_vectors,
     }
 
 

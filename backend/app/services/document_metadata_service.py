@@ -66,6 +66,37 @@ def get_document_by_stored_filename(
     )
 
 
+def get_document_by_id(metadata_path: Path, document_id: str) -> dict | None:
+    return next(
+        (
+            document
+            for document in load_documents(metadata_path)
+            if document["document_id"] == document_id
+        ),
+        None,
+    )
+
+
+def remove_document_by_id(metadata_path: Path, document_id: str) -> dict | None:
+    documents = load_documents(metadata_path)
+    remaining_documents = [
+        document
+        for document in documents
+        if document["document_id"] != document_id
+    ]
+
+    if len(remaining_documents) == len(documents):
+        return None
+
+    removed_document = next(
+        document
+        for document in documents
+        if document["document_id"] == document_id
+    )
+    save_documents(metadata_path, remaining_documents)
+    return removed_document
+
+
 def update_document_status(
     metadata_path: Path,
     stored_filename: str,

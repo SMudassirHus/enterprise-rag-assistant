@@ -57,13 +57,7 @@ def answer_question(request: AnswerRequest) -> dict:
         "answer": answer_result.answer,
         "model": answer_result.model,
         "sources": [
-            {
-                "text": chunk.text,
-                "chunk_index": chunk.chunk_index,
-                "document_filename": chunk.document_filename,
-                "relevance_score": chunk.relevance_score,
-                "distance": chunk.distance,
-            }
+            serialize_source_chunk(chunk)
             for chunk in answer_result.source_chunks
         ],
     }
