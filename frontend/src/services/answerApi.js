@@ -1,7 +1,8 @@
+import { authFetch } from "./apiClient.js";
 import { apiBaseUrl } from "./healthApi.js";
 
 export async function generateAnswer(question) {
-  const response = await fetch(`${apiBaseUrl}/api/chat/answer`, {
+  const response = await authFetch(`${apiBaseUrl}/api/chat/answer`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -55,7 +56,7 @@ function parseServerSentEvents(buffer, handlers) {
 }
 
 export async function streamAnswer(question, handlers = {}) {
-  const response = await fetch(`${apiBaseUrl}/api/chat/answer/stream`, {
+  const response = await authFetch(`${apiBaseUrl}/api/chat/answer/stream`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

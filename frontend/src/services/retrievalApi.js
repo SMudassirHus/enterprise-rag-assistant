@@ -1,7 +1,8 @@
+import { authFetch } from "./apiClient.js";
 import { apiBaseUrl } from "./healthApi.js";
 
 export async function searchDocuments(question) {
-  const response = await fetch(`${apiBaseUrl}/api/retrieval/search`, {
+  const response = await authFetch(`${apiBaseUrl}/api/retrieval/search`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

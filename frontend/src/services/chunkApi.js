@@ -1,8 +1,9 @@
+import { authFetch } from "./apiClient.js";
 import { apiBaseUrl } from "./healthApi.js";
 
 export async function generatePdfChunks(filename) {
   const encodedFilename = encodeURIComponent(filename);
-  const response = await fetch(`${apiBaseUrl}/api/uploads/${encodedFilename}/chunks`, {
+  const response = await authFetch(`${apiBaseUrl}/api/uploads/${encodedFilename}/chunks`, {
     method: "POST",
   });
 

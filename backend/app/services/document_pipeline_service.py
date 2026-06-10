@@ -41,11 +41,15 @@ def generate_embeddings_for_uploaded_pdf(filename: str) -> EmbeddingResult:
     )
 
 
-def store_uploaded_pdf_in_vector_database(filename: str) -> dict[str, int | str]:
+def store_uploaded_pdf_in_vector_database(
+    filename: str,
+    user_id: str,
+) -> dict[str, int | str]:
     embedding_result = generate_embeddings_for_uploaded_pdf(filename)
     document = get_document_by_stored_filename(
         settings.document_metadata_path,
         filename,
+        user_id=user_id,
     ) or {}
     return store_chunk_embeddings(
         chunk_embeddings=embedding_result.chunk_embeddings,
@@ -55,12 +59,18 @@ def store_uploaded_pdf_in_vector_database(filename: str) -> dict[str, int | str]
         embedding_model=embedding_result.model,
         document_id=document.get("document_id", filename),
         original_filename=document.get("original_filename", filename),
+        user_id=user_id,
     )
 
 
-def mark_document_status(filename: str, **status_updates: bool) -> dict | None:
+def mark_document_status(
+    filename: str,
+    user_id: str,
+    **status_updates: bool,
+) -> dict | None:
     return update_document_status(
         settings.document_metadata_path,
         filename,
+        user_id=user_id,
         **status_updates,
     )

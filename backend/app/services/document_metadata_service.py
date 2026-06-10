@@ -7,6 +7,7 @@ from pathlib import Path
 @dataclass(frozen=True)
 class DocumentMetadata:
     document_id: str
+    user_id: str
     original_filename: str
     stored_filename: str
     uploaded_at: str
@@ -37,11 +38,13 @@ def save_documents(metadata_path: Path, documents: list[dict]) -> None:
 def create_document_metadata(
     metadata_path: Path,
     document_id: str,
+    user_id: str,
     original_filename: str,
     stored_filename: str,
 ) -> DocumentMetadata:
     document = DocumentMetadata(
         document_id=document_id,
+        user_id=user_id,
         original_filename=original_filename,
         stored_filename=stored_filename,
         uploaded_at=utc_now(),
@@ -52,37 +55,59 @@ def create_document_metadata(
     return document
 
 
+def get_documents_by_user(metadata_path: Path, user_id: str) -> list[dict]:
+    return [
+        document
+        for document in load_documents(metadata_path)
+        if document.get("user_id") == user_id
+    ]
+
+
 def get_document_by_stored_filename(
     metadata_path: Path,
     stored_filename: str,
+    user_id: str | None = None,
 ) -> dict | None:
     return next(
         (
             document
             for document in load_documents(metadata_path)
             if document["stored_filename"] == stored_filename
+            and (user_id is None or document.get("user_id") == user_id)
         ),
         None,
     )
 
 
-def get_document_by_id(metadata_path: Path, document_id: str) -> dict | None:
+def get_document_by_id(
+    metadata_path: Path,
+    document_id: str,
+    user_id: str | None = None,
+) -> dict | None:
     return next(
         (
             document
             for document in load_documents(metadata_path)
             if document["document_id"] == document_id
+            and (user_id is None or document.get("user_id") == user_id)
         ),
         None,
     )
 
 
-def remove_document_by_id(metadata_path: Path, document_id: str) -> dict | None:
+def remove_document_by_id(
+    metadata_path: Path,
+    document_id: str,
+    user_id: str | None = None,
+) -> dict | None:
     documents = load_documents(metadata_path)
     remaining_documents = [
         document
         for document in documents
-        if document["document_id"] != document_id
+        if not (
+            document["document_id"] == document_id
+            and (user_id is None or document.get("user_id") == user_id)
+        )
     ]
 
     if len(remaining_documents) == len(documents):
@@ -92,6 +117,7 @@ def remove_document_by_id(metadata_path: Path, document_id: str) -> dict | None:
         document
         for document in documents
         if document["document_id"] == document_id
+        and (user_id is None or document.get("user_id") == user_id)
     )
     save_documents(metadata_path, remaining_documents)
     return removed_document
@@ -100,13 +126,16 @@ def remove_document_by_id(metadata_path: Path, document_id: str) -> dict | None:
 def update_document_status(
     metadata_path: Path,
     stored_filename: str,
+    user_id: str | None = None,
     **status_updates: bool,
 ) -> dict | None:
     documents = load_documents(metadata_path)
     updated_document = None
 
     for document in documents:
-        if document["stored_filename"] == stored_filename:
+        if document["stored_filename"] == stored_filename and (
+            user_id is None or document.get("user_id") == user_id
+        ):
             document.update(status_updates)
             updated_document = document
             break

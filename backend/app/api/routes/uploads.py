@@ -1,14 +1,16 @@
 import logging
 
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, Depends, File, UploadFile
 from fastapi import HTTPException, status
 from pydantic import BaseModel
 
+from app.core.auth import AuthenticatedUser, get_current_user
 from app.core.config import settings
 from app.services.document_metadata_service import (
     create_document_metadata,
     get_document_by_id,
-    load_documents,
+    get_document_by_stored_filename,
+    get_documents_by_user,
     remove_document_by_id,
 )
 from app.services.document_pipeline_service import (
@@ -38,6 +40,7 @@ class DocumentStatusResponse(BaseModel):
 
 class DocumentMetadataResponse(BaseModel):
     document_id: str
+    user_id: str
     original_filename: str
     stored_filename: str
     uploaded_at: str
@@ -119,10 +122,12 @@ def serialize_document(document: dict) -> dict:
         settings.chroma_path,
         settings.chroma_collection_name,
         document["document_id"],
+        user_id=document.get("user_id"),
     )
 
     return {
         "document_id": document["document_id"],
+        "user_id": document["user_id"],
         "original_filename": document["original_filename"],
         "stored_filename": document["stored_filename"],
         "uploaded_at": document["uploaded_at"],
@@ -134,6 +139,22 @@ def serialize_document(document: dict) -> dict:
         },
         "chunks_count": chunks_count,
     }
+
+
+def get_owned_document_by_filename(filename: str, user_id: str) -> dict:
+    document = get_document_by_stored_filename(
+        settings.document_metadata_path,
+        filename,
+        user_id=user_id,
+    )
+
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document was not found.",
+        )
+
+    return document
 
 
 def delete_uploaded_pdf_file(stored_filename: str) -> bool:
@@ -154,8 +175,13 @@ def delete_uploaded_pdf_file(stored_filename: str) -> bool:
 
 
 @router.get("", response_model=DocumentListResponse)
-def list_uploaded_documents() -> dict:
-    documents = load_documents(settings.document_metadata_path)
+def list_uploaded_documents(
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> dict:
+    documents = get_documents_by_user(
+        settings.document_metadata_path,
+        current_user.user_id,
+    )
 
     return {
         "status": "success",
@@ -166,8 +192,15 @@ def list_uploaded_documents() -> dict:
 
 
 @router.delete("/{document_id}", response_model=DeleteDocumentResponse)
-def delete_uploaded_document(document_id: str) -> dict:
-    document = get_document_by_id(settings.document_metadata_path, document_id)
+def delete_uploaded_document(
+    document_id: str,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> dict:
+    document = get_document_by_id(
+        settings.document_metadata_path,
+        document_id,
+        user_id=current_user.user_id,
+    )
 
     if not document:
         raise HTTPException(
@@ -179,9 +212,14 @@ def delete_uploaded_document(document_id: str) -> dict:
         settings.chroma_path,
         settings.chroma_collection_name,
         document["document_id"],
+        user_id=current_user.user_id,
     )
     deleted_pdf = delete_uploaded_pdf_file(document["stored_filename"])
-    remove_document_by_id(settings.document_metadata_path, document_id)
+    remove_document_by_id(
+        settings.document_metadata_path,
+        document_id,
+        user_id=current_user.user_id,
+    )
 
     return {
         "status": "success",
@@ -195,11 +233,15 @@ def delete_uploaded_document(document_id: str) -> dict:
 
 
 @router.post("", response_model=UploadResponse)
-async def upload_pdf(file: UploadFile = File(...)) -> dict:
+async def upload_pdf(
+    file: UploadFile = File(...),
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> dict:
     upload_result = await save_uploaded_pdf(file, settings.upload_path)
     document = create_document_metadata(
         metadata_path=settings.document_metadata_path,
         document_id=upload_result["document_id"],
+        user_id=current_user.user_id,
         original_filename=upload_result["original_filename"],
         stored_filename=upload_result["stored_filename"],
     )
@@ -215,7 +257,10 @@ async def upload_pdf(file: UploadFile = File(...)) -> dict:
 
 
 @router.post("/multiple", response_model=MultipleUploadResponse)
-async def upload_multiple_pdfs(files: list[UploadFile] = File(...)) -> dict:
+async def upload_multiple_pdfs(
+    files: list[UploadFile] = File(...),
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> dict:
     uploaded_documents = []
 
     for file in files:
@@ -223,6 +268,7 @@ async def upload_multiple_pdfs(files: list[UploadFile] = File(...)) -> dict:
         document = create_document_metadata(
             metadata_path=settings.document_metadata_path,
             document_id=upload_result["document_id"],
+            user_id=current_user.user_id,
             original_filename=upload_result["original_filename"],
             stored_filename=upload_result["stored_filename"],
         )
@@ -237,9 +283,17 @@ async def upload_multiple_pdfs(files: list[UploadFile] = File(...)) -> dict:
 
 
 @router.post("/{filename}/extract", response_model=ExtractionResponse)
-def extract_pdf_text(filename: str) -> dict:
+def extract_pdf_text(
+    filename: str,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> dict:
+    get_owned_document_by_filename(filename, current_user.user_id)
     extracted_text = extract_text_from_pdf(settings.upload_path, filename)
-    document = mark_document_status(filename, text_extracted=True)
+    document = mark_document_status(
+        filename,
+        user_id=current_user.user_id,
+        text_extracted=True,
+    )
 
     return {
         "status": "success",
@@ -252,9 +306,17 @@ def extract_pdf_text(filename: str) -> dict:
 
 
 @router.post("/{filename}/chunks", response_model=ChunkingResponse)
-def create_pdf_chunks(filename: str) -> dict:
+def create_pdf_chunks(
+    filename: str,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> dict:
+    get_owned_document_by_filename(filename, current_user.user_id)
     chunks = get_chunks_for_uploaded_pdf(filename)
-    document = mark_document_status(filename, chunks_created=True)
+    document = mark_document_status(
+        filename,
+        user_id=current_user.user_id,
+        chunks_created=True,
+    )
 
     return {
         "status": "success",
@@ -276,10 +338,18 @@ def create_pdf_chunks(filename: str) -> dict:
 
 
 @router.post("/{filename}/embeddings", response_model=EmbeddingResponse)
-def create_pdf_embeddings(filename: str) -> dict:
+def create_pdf_embeddings(
+    filename: str,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> dict:
     try:
+        get_owned_document_by_filename(filename, current_user.user_id)
         embedding_result = generate_embeddings_for_uploaded_pdf(filename)
-        document = mark_document_status(filename, embeddings_generated=True)
+        document = mark_document_status(
+            filename,
+            user_id=current_user.user_id,
+            embeddings_generated=True,
+        )
 
         return {
             "status": "success",
@@ -300,9 +370,20 @@ def create_pdf_embeddings(filename: str) -> dict:
 
 
 @router.post("/{filename}/vector-store", response_model=VectorStoreResponse)
-def store_pdf_chunks_in_vector_database(filename: str) -> dict:
-    storage_result = store_uploaded_pdf_in_vector_database(filename)
-    document = mark_document_status(filename, stored_in_vector_db=True)
+def store_pdf_chunks_in_vector_database(
+    filename: str,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> dict:
+    get_owned_document_by_filename(filename, current_user.user_id)
+    storage_result = store_uploaded_pdf_in_vector_database(
+        filename,
+        user_id=current_user.user_id,
+    )
+    document = mark_document_status(
+        filename,
+        user_id=current_user.user_id,
+        stored_in_vector_db=True,
+    )
 
     return {
         "status": "success",

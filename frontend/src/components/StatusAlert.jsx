@@ -1,6 +1,6 @@
 const styles = {
-  error: "border-red-200 bg-red-50 text-red-800",
-  success: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  error: "bg-red-500/10 text-red-200 ring-red-300/20",
+  success: "bg-emerald-500/10 text-emerald-200 ring-emerald-300/20",
 };
 
 function StatusAlert({ message, type = "success" }) {
@@ -9,7 +9,7 @@ function StatusAlert({ message, type = "success" }) {
   }
 
   return (
-    <p className={`rounded-md border px-4 py-3 text-sm ${styles[type]}`}>
+    <p className={`rounded-2xl px-3 py-2 text-xs shadow-lg shadow-black/20 ring-1 backdrop-blur ${styles[type]}`}>
       {message}
     </p>
   );

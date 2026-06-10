@@ -65,6 +65,7 @@ def retrieve_answer_sources(
     db_path,
     collection_name: str,
     top_k: int,
+    user_id: str,
 ) -> list[RetrievedChunk]:
     return retrieve_relevant_chunks(
         question=question,
@@ -73,6 +74,7 @@ def retrieve_answer_sources(
         db_path=db_path,
         collection_name=collection_name,
         top_k=top_k,
+        user_id=user_id,
     )
 
 
@@ -84,6 +86,7 @@ def generate_grounded_answer(
     db_path,
     collection_name: str,
     top_k: int,
+    user_id: str,
 ) -> AnswerResult:
     retrieved_chunks = retrieve_answer_sources(
         question=question,
@@ -92,6 +95,7 @@ def generate_grounded_answer(
         db_path=db_path,
         collection_name=collection_name,
         top_k=top_k,
+        user_id=user_id,
     )
 
     if not retrieved_chunks:

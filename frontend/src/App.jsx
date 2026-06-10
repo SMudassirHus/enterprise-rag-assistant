@@ -1,13 +1,24 @@
 import { useEffect, useState } from "react";
 
+import AtlasLogo from "./components/AtlasLogo.jsx";
+import AuthScreen from "./components/AuthScreen.jsx";
 import BackendStatus from "./components/BackendStatus.jsx";
 import RagWorkspace from "./components/RagWorkspace.jsx";
-import { apiBaseUrl, getBackendHealth } from "./services/healthApi.js";
+import {
+  getCurrentSession,
+  onAuthStateChange,
+  signOut,
+} from "./services/authService.js";
+import { getBackendHealth } from "./services/healthApi.js";
+import { isSupabaseConfigured } from "./services/supabaseClient.js";
 
 function App() {
   const [healthMessage, setHealthMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [session, setSession] = useState(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
     async function checkBackendConnection() {
@@ -26,47 +37,92 @@ function App() {
     checkBackendConnection();
   }, []);
 
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setIsAuthLoading(false);
+      return undefined;
+    }
+
+    let isMounted = true;
+
+    async function loadSession() {
+      try {
+        const currentSession = await getCurrentSession();
+
+        if (isMounted) {
+          setSession(currentSession);
+        }
+      } catch {
+        if (isMounted) {
+          setSession(null);
+        }
+      } finally {
+        if (isMounted) {
+          setIsAuthLoading(false);
+        }
+      }
+    }
+
+    loadSession();
+
+    const {
+      data: { subscription },
+    } = onAuthStateChange((nextSession) => {
+      setSession(nextSession);
+      setIsAuthLoading(false);
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  async function handleLogout() {
+    setIsLoggingOut(true);
+
+    try {
+      await signOut();
+    } finally {
+      setIsLoggingOut(false);
+    }
+  }
+
   const isConnected = !isLoading && !errorMessage;
 
-  return (
-    <main className="min-h-screen bg-slate-100 text-slate-900">
-      <div className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">
-              Enterprise RAG Assistant
-            </p>
-            <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
-              Document intelligence workspace
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Upload PDFs, index them into ChromaDB, and ask grounded questions
-              with streamed answers and visible source chunks.
-            </p>
+  if (isAuthLoading) {
+    return (
+      <main className="flex h-screen items-center justify-center bg-[#090f1f] text-slate-100">
+        <div className="text-center">
+          <div className="mx-auto mb-4 flex justify-center">
+            <AtlasLogo className="h-11 w-11 animate-pulse" />
           </div>
-          <div className="w-full lg:w-[360px]">
-            <BackendStatus
-              errorMessage={errorMessage}
-              healthMessage={healthMessage}
-              isConnected={isConnected}
-              isLoading={isLoading}
-            />
-          </div>
+          <p className="text-sm text-slate-400">Loading Atlas AI...</p>
         </div>
-      </div>
+      </main>
+    );
+  }
 
-      <div className="mx-auto w-full max-w-7xl px-6 py-6">
-        <RagWorkspace />
+  if (!session) {
+    return <AuthScreen />;
+  }
 
-        <section className="mt-5 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs font-medium uppercase text-slate-500">
-            Backend API URL
-          </p>
-          <p className="mt-2 break-all font-mono text-sm text-slate-800">
-            {apiBaseUrl}
-          </p>
-        </section>
-      </div>
+  return (
+    <main className="h-screen overflow-hidden bg-[#090f1f] text-slate-100">
+      <RagWorkspace
+        key={session.user.id}
+        backendStatus={
+          <BackendStatus
+            errorMessage={errorMessage}
+            healthMessage={healthMessage}
+            isConnected={isConnected}
+            isLoading={isLoading}
+          />
+        }
+        currentUser={session.user}
+        isLoggingOut={isLoggingOut}
+        onLogout={handleLogout}
+      />
     </main>
   );
 }

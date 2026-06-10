@@ -8,7 +8,7 @@ function LoadingButton({
 }) {
   return (
     <button
-      className={`rounded-md px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:bg-slate-400 ${className}`}
+      className={`rounded-md px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-55 ${className}`}
       disabled={disabled || isLoading}
       {...props}
     >

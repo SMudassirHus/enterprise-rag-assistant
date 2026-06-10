@@ -31,6 +31,7 @@ def retrieve_relevant_chunks(
     db_path,
     collection_name: str,
     top_k: int,
+    user_id: str,
 ) -> list[RetrievedChunk]:
     query_embedding = generate_query_embedding(
         text=question,
@@ -42,6 +43,7 @@ def retrieve_relevant_chunks(
         db_path=db_path,
         collection_name=collection_name,
         top_k=top_k,
+        user_id=user_id,
     )
 
     documents = query_result.get("documents", [[]])[0]

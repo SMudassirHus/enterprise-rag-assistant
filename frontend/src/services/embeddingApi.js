@@ -1,8 +1,9 @@
+import { authFetch } from "./apiClient.js";
 import { apiBaseUrl } from "./healthApi.js";
 
 export async function generatePdfEmbeddings(filename) {
   const encodedFilename = encodeURIComponent(filename);
-  const response = await fetch(
+  const response = await authFetch(
     `${apiBaseUrl}/api/uploads/${encodedFilename}/embeddings`,
     {
       method: "POST",

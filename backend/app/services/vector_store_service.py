@@ -32,6 +32,7 @@ def store_chunk_embeddings(
     collection_name: str,
     filename: str,
     embedding_model: str,
+    user_id: str,
     document_id: str | None = None,
     original_filename: str | None = None,
 ) -> dict[str, int | str]:
@@ -53,6 +54,7 @@ def store_chunk_embeddings(
         {
             "filename": filename,
             "document_id": document_id or filename,
+            "user_id": user_id,
             "original_filename": original_filename or filename,
             "chunk_index": item.chunk.index,
             "character_count": item.chunk.character_count,
@@ -89,6 +91,7 @@ def query_similar_chunks(
     db_path: Path,
     collection_name: str,
     top_k: int,
+    user_id: str,
 ):
     if top_k <= 0:
         raise HTTPException(
@@ -108,6 +111,7 @@ def query_similar_chunks(
         return collection.query(
             query_embeddings=[query_embedding],
             n_results=top_k,
+            where={"user_id": user_id},
             include=["documents", "metadatas", "distances"],
         )
     except HTTPException:
@@ -124,10 +128,20 @@ def count_document_vectors(
     db_path: Path,
     collection_name: str,
     document_id: str,
+    user_id: str | None = None,
 ) -> int:
     try:
         collection = get_chroma_collection(db_path, collection_name)
-        result = collection.get(where={"document_id": document_id})
+        where_filter = {"document_id": document_id}
+        if user_id:
+            where_filter = {
+                "$and": [
+                    {"document_id": document_id},
+                    {"user_id": user_id},
+                ]
+            }
+
+        result = collection.get(where=where_filter)
         return len(result.get("ids", []))
     except Exception:
         logger.exception("Could not count ChromaDB vectors for document")
@@ -138,10 +152,20 @@ def delete_document_vectors(
     db_path: Path,
     collection_name: str,
     document_id: str,
+    user_id: str | None = None,
 ) -> int:
     try:
         collection = get_chroma_collection(db_path, collection_name)
-        existing_vectors = collection.get(where={"document_id": document_id})
+        where_filter = {"document_id": document_id}
+        if user_id:
+            where_filter = {
+                "$and": [
+                    {"document_id": document_id},
+                    {"user_id": user_id},
+                ]
+            }
+
+        existing_vectors = collection.get(where=where_filter)
         vector_ids = existing_vectors.get("ids", [])
 
         if not vector_ids:

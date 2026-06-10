@@ -1,6 +1,6 @@
-# Enterprise RAG Assistant
+# Atlas AI
 
-A production-style full-stack starter for an Enterprise RAG Assistant.
+A production-style full-stack Enterprise Knowledge Assistant with document upload, indexing, semantic retrieval, grounded AI answers, Supabase authentication, and user-specific document ownership.
 
 This project is being built step-by-step. The current version includes:
 
@@ -12,8 +12,11 @@ This project is being built step-by-step. The current version includes:
 - Local ChromaDB vector storage
 - Semantic retrieval from stored chunks
 - Grounded AI answer generation
-
-Chat history, authentication, and streaming will be added later.
+- Streaming chat responses
+- Source citations
+- Browser-local chat history
+- Supabase email/password authentication
+- User-specific document ownership and retrieval isolation
 
 ## Tech Stack
 
@@ -34,6 +37,7 @@ enterprise-rag-assistant/
 |   |   |   |-- retrieval.py
 |   |   |   `-- uploads.py
 |   |   |-- core/
+|   |   |   |-- auth.py
 |   |   |   `-- config.py
 |   |   |-- services/
 |   |   |   |-- answer_service.py
@@ -53,14 +57,11 @@ enterprise-rag-assistant/
 |-- frontend/
 |   |-- src/
 |   |   |-- components/
-|   |   |   |-- AnswerBox.jsx
+|   |   |   |-- AtlasLogo.jsx
+|   |   |   |-- AuthScreen.jsx
 |   |   |   |-- BackendStatus.jsx
-|   |   |   |-- ChunkPreview.jsx
-|   |   |   |-- EmbeddingStatus.jsx
-|   |   |   |-- ExtractedTextPreview.jsx
-|   |   |   |-- PdfUploadForm.jsx
-|   |   |   |-- RetrievalSearch.jsx
-|   |   |   `-- VectorStoreStatus.jsx
+|   |   |   |-- RagWorkspace.jsx
+|   |   |   `-- Toast.jsx
 |   |   |-- services/
 |   |   |   |-- answerApi.js
 |   |   |   |-- chunkApi.js
@@ -76,6 +77,8 @@ enterprise-rag-assistant/
 |   |-- .env.example
 |   `-- package.json
 |-- .gitignore
+|-- DEPLOYMENT.md
+|-- render.yaml
 `-- README.md
 ```
 
@@ -108,10 +111,12 @@ Create your local environment file:
 copy .env.example .env
 ```
 
-Add your OpenAI key to `backend/.env`:
+Add your backend environment variables to `backend/.env`:
 
 ```env
 OPENAI_API_KEY="your_real_openai_api_key"
+SUPABASE_URL="https://your-project-ref.supabase.co"
+SUPABASE_ANON_KEY="your-supabase-anon-key"
 ```
 
 Run the API:
@@ -162,10 +167,20 @@ CHUNK_SIZE=1000
 CHUNK_OVERLAP=200
 OPENAI_API_KEY="your_real_openai_api_key"
 EMBEDDING_MODEL="text-embedding-3-small"
-CHAT_MODEL="gpt-5.2"
+CHAT_MODEL="gpt-4o-mini"
 CHROMA_DB_DIR="chroma"
 CHROMA_COLLECTION_NAME="enterprise_documents"
 RETRIEVAL_TOP_K=3
+SUPABASE_URL="https://your-project-ref.supabase.co"
+SUPABASE_ANON_KEY="your-supabase-anon-key"
+```
+
+Frontend configuration lives in `frontend/.env`:
+
+```env
+VITE_API_BASE_URL="http://localhost:8000"
+VITE_SUPABASE_URL="https://your-project-ref.supabase.co"
+VITE_SUPABASE_ANON_KEY="your-supabase-anon-key"
 ```
 
 Do not commit `.env`. It is ignored by Git.
@@ -181,6 +196,9 @@ The current pipeline is:
 5. Store vectors: `POST /api/uploads/{filename}/vector-store`
 6. Search documents: `POST /api/retrieval/search`
 7. Generate grounded answer: `POST /api/chat/answer`
+8. Stream grounded answer: `POST /api/chat/answer/stream`
+
+Document, retrieval, and chat routes require a Supabase bearer token from the authenticated frontend session.
 
 ## ChromaDB Storage
 
@@ -192,6 +210,7 @@ ChromaDB stores each chunk with:
 - document filename
 - character count
 - embedding model
+- Supabase user id
 
 With the default commands in this README, local Chroma data is saved under:
 
@@ -200,6 +219,27 @@ backend/chroma/
 ```
 
 The generated Chroma files are ignored by Git. Only `.gitkeep` is committed.
+
+## User-Specific Ownership
+
+Each uploaded document is associated with the authenticated Supabase `user_id`.
+
+The backend enforces ownership by:
+
+- validating the Supabase access token
+- storing `user_id` in local document metadata
+- storing `user_id` in ChromaDB chunk metadata
+- filtering retrieval by `user_id`
+- checking ownership before processing or deleting documents
+
+## Deployment
+
+Deployment targets:
+
+- Frontend: Vercel
+- Backend: Render
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for Render/Vercel setup, environment variables, CORS configuration, and persistent disk notes.
 
 ## Semantic Retrieval
 

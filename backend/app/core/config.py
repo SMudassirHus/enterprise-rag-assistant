@@ -30,6 +30,8 @@ class Settings:
         "enterprise_documents",
     )
     retrieval_top_k: int = int(os.getenv("RETRIEVAL_TOP_K", "3"))
+    supabase_url: str = os.getenv("SUPABASE_URL", "")
+    supabase_anon_key: str = os.getenv("SUPABASE_ANON_KEY", "")
     backend_cors_origins: str = os.getenv(
         "BACKEND_CORS_ORIGINS",
         "http://localhost:5173",
